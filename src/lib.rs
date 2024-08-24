@@ -25,10 +25,16 @@ use crate::default_ikev2_scan::DefaultIkeV2;
 use crate::ike::ExchangeType;
 use crate::ike::IkeV1;
 use crate::ike::IkeV1Header;
+use crate::ike::PayloadTypeV1;
 use crate::ike::PayloadTypeV1::NoNextPayload;
 use crate::ike::PayloadTypeV1::SecurityAssociation;
 use crate::ike::ProposalPayload;
 use crate::ike::SecurityAssociationV1;
+use crate::ike_aggressive::IDPayload;
+use crate::ike_aggressive::IdType::IpV4Addr;
+use crate::ike_aggressive::IdType::UserFqdn;
+use crate::ike_aggressive::IkeAggressive;
+use crate::ike_aggressive::KeyExchangePayloadV1;
 use crate::ikev2::testversion::TestIkeVersion;
 use crate::ikev2::AttributeType;
 use crate::ikev2::AttributeV2;
@@ -51,6 +57,7 @@ use crate::parse_ikev2::ResponsePacketV2;
 
 pub mod default_ikev2_scan;
 pub mod ike;
+pub mod ike_aggressive;
 pub mod ikev2;
 pub mod parse_ike;
 pub mod parse_ikev2;
@@ -68,11 +75,12 @@ pub mod parse_ikev2;
 /// Die Antworten des Servers werden für IkeV1 verarbeitet.
 pub async fn scan() -> io::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().unwrap()).await?;
-    let remote_addr = "ip:500".parse::<SocketAddr>().unwrap();
+    let remote_addr = "212.172.22.108:500".parse::<SocketAddr>().unwrap();
     socket.connect(remote_addr).await?;
     //sending IKE Version 1 packet
     let transforms = IkeV1::build_transforms();
-    for chunk in transforms.chunks(255) {
+    for chunk in transforms.chunks(1) {
+        //transforms.chunks(255) {
         //calculate random Initiator Security Parameter Index
         let initiator_spi: u64 = rand::thread_rng().gen();
         //Ike Version 1 Packet
@@ -131,9 +139,92 @@ pub async fn scan() -> io::Result<()> {
                 notify_response.notify_payload.notify_message_type
             )
         }
-        let seconds = time::Duration::from_secs(60);
+        let seconds = time::Duration::from_secs(10);
         tokio::time::sleep(seconds).await;
     }
+    Ok(())
+}
+
+///aggressive mode
+pub async fn scan_aggr() -> io::Result<()> {
+    let socket = UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().unwrap()).await?;
+    let remote_addr = "ip:500".parse::<SocketAddr>().unwrap();
+    socket.connect(remote_addr).await?;
+
+    //Ike Aggressive Packet
+    let transforms = IkeAggressive::build_transforms();
+    for chunks in transforms.chunks(1) {
+        let initiator_spi: u64 = rand::thread_rng().gen();
+        let mut ike_aggr = IkeAggressive {
+            header: IkeV1Header {
+                initiator_spi: U64::from(initiator_spi),
+                responder_spi: 0,
+                next_payload: u8::from(PayloadTypeV1::SecurityAssociation),
+                version: 16,
+                exchange_type: 4,
+                flag: 0,
+                message_id: 0,
+                length: Default::default(),
+            },
+            security_association_aggressive: SecurityAssociationV1 {
+                sa_next_payload: u8::from(PayloadTypeV1::KeyExchange),
+                reserved: 0,
+                sa_length: Default::default(),
+                sa_doi: U32::from(1),
+                sa_situation: U32::from(1),
+            },
+            proposal_payload: ProposalPayload {
+                next_payload: u8::from(NoNextPayload),
+                reserved: 0,
+                length: Default::default(),
+                proposal: 1,
+                protocol_id: 1,
+                spi_size: 0,
+                number_of_transforms: Default::default(),
+            },
+            transform: vec![],
+            key_exchange_payload_v1: KeyExchangePayloadV1 {
+                next_payload: u8::from(PayloadTypeV1::Nonce),
+                reserved: 0,
+                length: Default::default(),
+            },
+            key_exchange_data: vec![],
+            nonce_payload: NoncePayloadV2 {
+                next_payload_: u8::from(PayloadTypeV1::Identification),
+                reserved: 0,
+                length: Default::default(),
+            },
+            nonce_data: vec![],
+            identification_payload: IDPayload {
+                next_payload: u8::from(PayloadTypeV1::NoNextPayload),
+                reserved: 0,
+                length: Default::default(),
+                id_ype: u8::from(UserFqdn),
+                protocol_id: 0,
+                port: U16::from(500),
+                data: Default::default(),
+            },
+            //id_payload_data: vec![],
+        };
+        ike_aggr.set_transforms(chunks);
+        ike_aggr.create_key_exchange_data();
+        ike_aggr.generate_nonce();
+        ike_aggr.id_data();
+        ike_aggr.calculate_length();
+        let bytes = ike_aggr.convert_to_bytes();
+        println!("sende Paket");
+
+        socket.send(&bytes).await.expect("Couldn't send packet");
+
+        let mut buf = [0u8; 300];
+        socket
+            .recv_from(&mut buf)
+            .await
+            .expect("Couldn't read buffer");
+
+        let byte_slice = buf.as_slice();
+    }
+
     Ok(())
 }
 
@@ -141,7 +232,7 @@ pub async fn scan() -> io::Result<()> {
 /// Die Antwort des Servers wird verarbeitet und in der Konsole ausgegeben
 pub async fn scan_v2() -> io::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().unwrap()).await?;
-    let remote_addr = "ip:500".parse::<SocketAddr>().unwrap();
+    let remote_addr = ":500".parse::<SocketAddr>().unwrap();
     socket.connect(remote_addr).await?;
     //sending IKE Version 2 Packet
     let transforms_v2 = IkeV2::build_transforms_v2();
@@ -360,7 +451,7 @@ pub async fn default_ike_v2_scan() -> io::Result<()> {
                                 )
                             }
                         }
-                        let seconds = time::Duration::from_secs(30);
+                        let seconds = time::Duration::from_secs(20);
                         tokio::time::sleep(seconds).await;
                     }
                 }
