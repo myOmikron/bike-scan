@@ -75,7 +75,7 @@ pub mod parse_ikev2;
 /// Die Antworten des Servers werden für IkeV1 verarbeitet.
 pub async fn scan() -> io::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().unwrap()).await?;
-    let remote_addr = "212.172.22.108:500".parse::<SocketAddr>().unwrap();
+    let remote_addr = "ip:500".parse::<SocketAddr>().unwrap();
     socket.connect(remote_addr).await?;
     //sending IKE Version 1 packet
     let transforms = IkeV1::build_transforms();
