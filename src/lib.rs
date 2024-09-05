@@ -3,13 +3,16 @@
 //! Die Funktion scan() ist für IkeV1 zuständig,
 //! die Funktion scan_v2() ist für IkeV2 zuständig.
 //! Die Funktionen verwenden Structs und Implementationen
-//! der jeweigen Module.
+//! der jeweiligen Module.
 //! Module für die scan()-Funktion: ike.rs, parse_ike.rs
 //! Module für die scan_v2()-Funktion: ikev2.rs, parse_ikev2.rs
 
 #![warn(missing_docs, clippy::expect_used, clippy::unwrap_used)]
 
+use std::fmt::format;
+use std::fs::File;
 use std::io;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::time;
 
@@ -73,9 +76,10 @@ pub mod parse_ikev2;
 /// Wenn keine Transformationen gefunden werden,
 /// wird das IkeV2 Paket mit der Funktion scan_v2 an den Server gesendet.
 /// Die Antworten des Servers werden für IkeV1 verarbeitet.
-pub async fn scan() -> io::Result<()> {
+pub async fn scan(ip: String) -> io::Result<()> {
+    let ip_port = format!("{ip}:500");
     let socket = UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().unwrap()).await?;
-    let remote_addr = "ip:500".parse::<SocketAddr>().unwrap();
+    let remote_addr = ip_port.parse::<SocketAddr>().unwrap();
     socket.connect(remote_addr).await?;
     //sending IKE Version 1 packet
     let transforms = IkeV1::build_transforms();
@@ -139,6 +143,7 @@ pub async fn scan() -> io::Result<()> {
                 notify_response.notify_payload.notify_message_type
             )
         }
+
         let seconds = time::Duration::from_secs(10);
         tokio::time::sleep(seconds).await;
     }
@@ -148,7 +153,7 @@ pub async fn scan() -> io::Result<()> {
 ///aggressive mode
 pub async fn scan_aggr() -> io::Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0".parse::<SocketAddr>().unwrap()).await?;
-    let remote_addr = "ip:500".parse::<SocketAddr>().unwrap();
+    let remote_addr = ":500".parse::<SocketAddr>().unwrap();
     socket.connect(remote_addr).await?;
 
     //Ike Aggressive Packet
@@ -223,6 +228,11 @@ pub async fn scan_aggr() -> io::Result<()> {
             .expect("Couldn't read buffer");
 
         let byte_slice = buf.as_slice();
+
+        //parse response
+        let ike_aggr_response =
+            NotifyPacketV1::parse_notify(byte_slice).expect("parsing not possible");
+        println!("Error: {:?}", ike_aggr_response);
     }
 
     Ok(())
